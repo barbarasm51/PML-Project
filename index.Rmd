@@ -1,0 +1,474 @@
+---
+title: "Practical Machine Learning Project"
+author: "B Mahoney"
+date: "March 24, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Project Practical Machine Learning - Coursera March, 2017
+
+This document summarizes the work done to complete the Course Project for the Coursera Practical Machine Learning course offered in March, 2017. The purpose of this project is to apply predictive analytics to a set of data captured by accelerometers (referred to as "on-body sensing" devices) worn by subjects executing a number of Unilateral Dumbbell Biceps Curls in five different ways, corresponding to five classes, A to E, with class A representing the correct exercise method. Classes B to E were variations of incorrect methods for conducting the excercise. Analytic models applied to the data provided were then used to predict the manner in which the specific exercise was performed.
+
+The following are excerpts from the Instructions and overview provided on the course website:
+
+###*Instructions*
+
+*One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.*
+
+####*Review criteria - What you should submit*
+
+*The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.*
+
+####Data Investigations
+```{r,cache=TRUE,message=FALSE,echo=FALSE,warning=FALSE}
+#set working directory and read the training set in
+setwd("C:/My Data/2017/Coursera")
+dat=read.csv("pml-training.csv")
+quiz=read.csv("pml-testing.csv")
+quizn=dim(quiz)
+trainn=dim(dat)[2]
+trainm=dim(dat)[1]
+
+
+```
+Two separate datasets were provided for this project.  The first is a set of `r trainm` records to be used to train the selected predictive models. `r trainn-1` predictors were included in the training set provided, along with the "classe" variable where the actual manner of execution (A, B, C, D, or E) was noted.
+
+The predictor data is voluminous and complex.  Graphical representations of the data that might normally produce insights do not seem to work well with this data.  A pair plot showing the classe variable against just 3 of the 159 predictors is shown below. This and other comparisons, however, hint strongly that a number of predictors may be correlated with each other. Based on this, I decided to use pre-processing on the predictor inputs for all of the remaining analysis.
+
+```{r,echo=FALSE}
+
+pairs(dat[,c(160,8:10)])
+
+```
+Another issue discovered in the data was the presence of a number of variables with few observations (and a majority of NA values) while the majority of variables had no instances of NA values.
+```{r, echo=FALSE,message=FALSE}
+
+na=sapply(dat,function(y) sum(length(which(is.na(y)))))
+naonly=na[na>0]
+naonly.ct=length(naonly)
+
+```
+A total of `r naonly.ct` variables having the majority of NA values were found in the data.  Each of these variables had values in exactly `r trainm-naonly[1]` records, out of a total of `r trainm` observations.
+
+My research indicated that there may be methods for dealing with sparse data like this, but I decided that I would not have time to learn enough about them to help with this project.  Instead, for the purposes of the remaining analysis, the NA majority predictors were excluded from subsequent steps in the study.
+
+####Analysis
+Data partitioning and cross-validation were the two ways used to estimate the accuracy of the analysis on out of sample error.
+
+To begin with, the training set was partitioned into 3 components:
+```{r, cache=FALSE, echo=FALSE,message=FALSE}
+#set parameters for data partition, testing portion of total
+#validation percent of testing
+
+buildpercent=.7
+trainpercent=.7
+```
+First, `r (1-buildpercent)*100`% of the records were set aside for model validation and prediction.
+Then `r trainpercent*100`% of the remaining records (so `r buildpercent*trainpercent*100`% of the total) were selected randomly for model building.
+Finally, `r buildpercent*(1-trainpercent)*100`% of the total records remained to be used to test the models.
+```{r,cache=FALSE, message=FALSE, echo=FALSE, warning=FALSE}
+
+#partition training set into build v validation
+set.seed(3523)
+require(caret)
+library(caret)
+
+inBuild=createDataPartition(dat$classe,p=buildpercent)[[1]]
+buildData=dat[inBuild,]
+validation=dat[-inBuild,]
+#partition training into training v testing
+
+inTrain=createDataPartition(buildData$classe,p=trainpercent)[[1]]
+
+truetest=buildData[-inTrain,]
+truetrain=buildData[inTrain,]
+
+```
+The training data, therefore, has `r dim(truetrain)[1]` rows, and testing was performed against a dataset containing `r dim(truetest)[1]` rows.
+```{r,cache=FALSE,echo=FALSE,message=FALSE}
+#preliminary models use only the subject, time and positional variables,
+#ignores sparse data columns
+
+training1=truetrain[,c(2:11,38:49,60:68,84:86,102,113:124,140,151:160)]
+pcount=dim(training1)[2]
+
+```
+For modeling purposes, all the fitting was done using pre-processed variables for predictors.  The training dataset provided the relationships among the subject, time, and movement variables (a total of `r pcount` variables with the majority NA columns excluded) using the pca method (i.e. principal components analysis) and a threshold of 0.95, with results summarized below.
+```{r,cache=FALSE,echo=FALSE, warning=FALSE,message=FALSE}
+#pre-Process all 57 subject, time and movement variables
+prep=preProcess(training1[,-58],method="pca",thresh=.95)
+prep
+#match up the validation dataset without subject or time variables
+testing1=truetest[,c(2:11,38:49,60:68,84:86,102,113:124,140,151:160)]
+valid1=validation[,c(2:11,38:49,60:68,84:86,102,113:124,140,151:160)]
+quiz1=quiz[,c(2:11,38:49,60:68,84:86,102,113:124,140,151:159)]
+#predict PC variables based on training set
+#predict PC variables based on validation set
+#create data frames and cbind with the results vectors
+#from training and validation sets respectively
+trainPC=predict(prep,training1[,-58])
+testPC=predict(prep,testing1[,-58])
+validPC=predict(prep,valid1[,-58])
+quizPC=predict(prep,quiz1)
+trainPC=as.data.frame(trainPC)
+testPC=as.data.frame(testPC)
+quizPC=as.data.frame(quizPC)
+validPC=as.data.frame(validPC)
+trainPC=cbind(trainPC,training1$classe)
+testPC=cbind(testPC,testing1$classe)
+validPC=cbind(validPC,valid1$classe)
+```
+####Model I: Random Forest
+The train function in the caret package was used for this model.
+
+The first model used the random forest method, with repeated cross validation for five resampling iterations and three repeats.  The number of variables per level (mtry) was set equal to the square root of the number of predictors, which is the default for this method.
+
+The summary of the model is shown below. The random forest produced a model with a pretty low OOB estimate of error rate of 2.66%.  This represents the accuracy of the cross-validation inherent in the model, and is a good estimate of the out of sample error expected.
+```{r, cache=FALSE,echo=FALSE, warning=FALSE,message=FALSE}
+#random forest model on pre-processed predictors
+#train on trainPC to create model, mod5
+#test on validation data set
+
+#set up the trainControl vector, for tuning
+control <- trainControl(method="repeatedcv", number=5, repeats=3)
+seed <- 3233
+set.seed(seed)
+#set up tuneGrid vector, for tuning
+mtry <- sqrt(ncol(trainPC))
+tunegrid <- expand.grid(.mtry=mtry)
+
+#run the model on training dataset results using random forest and
+#pre-processed variables
+modrf=train(`training1$classe`~.,method="rf",data=trainPC,
+           tuneGrid=tunegrid,trControl=control)
+modrf$finalModel
+#function to calculate accuracy of predictions 
+#inputs are data frame vectors, actual v predicted
+#output is percent accuracy for predictions
+AccCalc=function(actuals,predictions){
+  acc=cbind(actuals,predictions)
+  acc=transform(acc,actual=as.character(acc[,1]))
+  acc=transform(acc,predicted=as.character(acc[,2]))
+  acc=transform(acc,matching=(acc$actual!=acc$predicted))
+  AccCalc=1-sum(acc$matching)/length(acc$matching)
+}
+```
+We further tested the accuracy of the model by using predictions based on the random forest model against the testing data set we created earlier (using the pre-processed predictors from the training set). 
+```{r,cache=FALSE, echo=FALSE, warning=FALSE,message=FALSE}
+
+#Validate random forest model against validation results
+#using pre-processed predictors (trainPC pre-process model-->validPC)
+predrf=as.data.frame(predict(modrf,testPC))
+
+testAccrf=AccCalc(testPC$`testing1$classe`,predrf)
+testAccrf
+
+#confusion matrix function
+confusion=function(a,b){
+  tbl=table(a,b)
+  mis=1-sum(diag(tbl))/sum(tbl)
+  list(table=tbl,misclass.prob=mis)
+}
+
+cmrf=confusion(as.factor(predrf$`predict(modrf, testPC)`),as.factor(testPC$`testing1$classe`))
+cmrf
+```
+We calculated an Accuracy measure by comparing the class predicted by the model versus the actual class from the test data. The testing data produced an Accuracy measure of `r testAccrf*100`%, or an error rate of `r (1-testAccrf)*100`%, which is quite close to the expected out of sample error reported by the random forest algorithm.
+
+####Model II: Generalized Boosted Regression Model
+The second model type tested  was a gbm classification model using the same pre-processed variables on a multinomial classification scheme, n.trees set to 500, and interaction.depth set to 2. We used the gbm function in the 'gbm' package to construct this model. We then used the predict.gbm function first on the training data to project the classes on the data set, and then on the testing data, and compared the predicted values against the actual values in the corresponding data sets.
+
+The predict.gbm function produced a set of probabilities, which then needed to be converted to predicted values. These values were in turn converted into the factor values A, B, C, D, and E before comparison against the classe value in the training and testing datasets.
+
+Shown below are the calculated Accuracy and a confusion matrix for the training data, and then on the testing data.  Clearly, Model II did not perform nearly as well as Model I on either dataset.
+```{r,cache=FALSE, echo=FALSE, warning=FALSE,message=FALSE}
+#mod5 is random forest model, using pre processed data
+
+#mod6 is gbm classification model
+#reference: http://amunategui.github.io/binary-outcome-modeling/
+
+#objControl <- trainControl(method='cv', number=3, returnResamp='none',
+#                          classProbs=TRUE)
+#mod6=train(`training1$classe`~.,method="gbm",data=trainPC,
+#          metric="Accuracy",trControl=objControl)
+
+require(gbm)
+model = gbm(`training1$classe`~., data=trainPC, n.trees=500,
+             interaction.depth=2,distribution="multinomial")
+predictiontrain = predict.gbm(model, trainPC, type="response", n.trees=500)
+prediction = predict.gbm(model, testPC, type="response", n.trees=500)
+
+
+
+#convert probabilities in prediction to values from 1 to 5 (A to B)
+#function converts integers to alpha
+train.pred = apply(predictiontrain, 1, which.max)
+train.pred=as.data.frame(train.pred)
+p.pred = apply(prediction, 1, which.max)
+p.pred=as.data.frame(p.pred)
+
+alphavalue=function(prediction){
+  alphavalue=transform(prediction,letter=ifelse(prediction==1,"A",
+                                                ifelse(prediction==2,"B",
+                                                       ifelse(prediction==3,"C",
+                                                              ifelse(prediction==4,"D",
+                                                                                      "E")))))
+}
+
+predtrain=alphavalue(train.pred)
+predtrain=as.data.frame(predtrain)
+predgbm=alphavalue(p.pred)
+predgbm=as.data.frame(predgbm)
+
+compvalid=cbind(testPC$`testing1$classe`,predgbm)
+compvalid=transform(compvalid,actual=compvalid[,1])
+compvalid=transform(compvalid,actual=as.character(actual))
+compvalid=transform(compvalid,predicted=as.character(compvalid[,2]))
+compvalid=transform(compvalid,matching=(compvalid$actual!=compvalid$predicted))
+testAcc2=1-sum(compvalid$matching)/length(compvalid$matching)
+trainAccgbm=AccCalc(trainPC$`training1$classe`,as.data.frame(predtrain$train.pred.1))
+
+cmtrain=confusion(as.factor(predtrain$train.pred.1),as.factor(trainPC$`training1$classe`))
+testAccgbm=AccCalc(testPC$`testing1$classe`,as.data.frame(predgbm$p.pred.1))
+
+cmtable=confusion(as.factor(predgbm$p.pred.1),as.factor(testPC$`testing1$classe`))
+```
+First, the training metrics:
+```{r,cache=FALSE,echo=FALSE}
+trainAccgbm
+cmtrain
+
+```
+Here are the performance metrics on the testing dataset:
+```{r,cache=FALSE, echo=FALSE}
+testAccgbm
+cmtable
+
+```
+###Selected Model - Model I
+Model I, the random forest model was clearly the better predictor and was selected as the final model for the project. Model I was applied against the validation dataset we set aside earlier in the initial data partition step. Here are the performance metrics on the validation dataset. The performance against the validation data is slightly better even than that for the testing data. This gives confidence that the model will produce reliable predictions outside the available sample.
+```{r,cache=FALSE, echo=FALSE, warning=FALSE,message=FALSE}
+predrfval=as.data.frame(predict(modrf,validPC))
+validAccrf=AccCalc(validPC$`valid1$classe`,predrfval)
+validAccrf
+cmrfvalid=confusion(as.factor(predrfval$`predict(modrf, validPC)`),as.factor(validPC$`valid1$classe`))
+cmrfvalid
+```
+###Apply Model I to test data set (20 records quiz output)
+We read in the 20 records from the testing data set provided. The dataset has `r quizn[1]` rows and `r quizn[2]` columns. The classe variable is missing of course, and an index column has been added (labeled 'problem id').  The random forest model was used to predict the classe variable, based on Model I, with pre-processed variables as predictors. Here are the predictions:
+```{r,cache=FALSE, echo=FALSE, warning=FALSE,message=FALSE}
+predquiz=as.data.frame(predict(modrf,quizPC))
+predquiz
+```
+##Appendix - R Code
+```{r,cache=TRUE,message=FALSE,eval=FALSE}
+#set working directory and read the training set in
+setwd("C:/My Data/2017/Coursera")
+dat=read.csv("pml-training.csv")
+quiz=read.csv("pml-testing.csv")
+quizn=dim(quiz)
+trainn=dim(dat)[2]
+trainm=dim(dat)[1]
+require(pander)
+
+```
+Plot selected data
+```{r,eval=FALSE}
+
+pairs(dat[,c(160,8:10)])
+
+```
+Check NA-dominated columns
+```{r, eval=FALSE}
+
+na=sapply(dat,function(y) sum(length(which(is.na(y)))))
+naonly=na[na>0]
+naonly.ct=length(naonly)
+
+```
+Set Partitioning Parameters
+```{r, cache=FALSE, eval=FALSE}
+#set parameters for data partition, testing portion of total
+#validation percent of testing
+
+buildpercent=.7
+trainpercent=.7
+```
+Partition the data
+```{r,cache=FALSE, message=FALSE, eval=FALSE}
+
+#partition training set into build v validation
+set.seed(3523)
+require(caret)
+library(caret)
+
+inBuild=createDataPartition(dat$classe,p=buildpercent)[[1]]
+buildData=dat[inBuild,]
+validation=dat[-inBuild,]
+#partition training into training v testing
+
+inTrain=createDataPartition(buildData$classe,p=trainpercent)[[1]]
+
+truetest=buildData[-inTrain,]
+truetrain=buildData[inTrain,]
+
+```
+Ignore NA dominated columns
+```{r,cache=FALSE,eval=FALSE}
+#preliminary models use only the subject, time and positional variables,
+#ignores sparse data columns
+
+training1=truetrain[,c(2:11,38:49,60:68,84:86,102,113:124,140,151:160)]
+pcount=dim(training1)[2]
+
+```
+Pre-processing code
+```{r,cache=FALSE,eval=FALSE}
+#pre-Process all 57 subject, time and movement variables
+prep=preProcess(training1[,-58],method="pca",thresh=.95)
+prep
+#match up the validation dataset variables
+testing1=truetest[,c(2:11,38:49,60:68,84:86,102,113:124,140,151:160)]
+valid1=validation[,c(2:11,38:49,60:68,84:86,102,113:124,140,151:160)]
+quiz1=quiz[,c(2:11,38:49,60:68,84:86,102,113:124,140,151:159)]
+
+trainPC=predict(prep,training1[,-58])
+testPC=predict(prep,testing1[,-58])
+validPC=predict(prep,valid1[,-58])
+quizPC=predict(prep,quiz1)
+trainPC=as.data.frame(trainPC)
+testPC=as.data.frame(testPC)
+quizPC=as.data.frame(quizPC)
+validPC=as.data.frame(validPC)
+trainPC=cbind(trainPC,training1$classe)
+testPC=cbind(testPC,testing1$classe)
+validPC=cbind(validPC,valid1$classe)
+```
+Construct Model I - Random Forest
+```{r, cache=FALSE,eval=FALSE}
+#random forest model on pre-processed predictors
+#train on trainPC to create model, mod5
+#test on validation data set
+
+#set up the trainControl vector, for tuning
+control <- trainControl(method="repeatedcv", number=5, repeats=3)
+seed <- 3233
+set.seed(seed)
+#set up tuneGrid vector, for tuning
+mtry <- sqrt(ncol(trainPC))
+tunegrid <- expand.grid(.mtry=mtry)
+
+#run the model on training dataset results using random forest and
+#pre-processed variables
+modrf=train(`training1$classe`~.,method="rf",data=trainPC,
+           tuneGrid=tunegrid,trControl=control)
+modrf$finalModel
+#function to calculate accuracy of predictions 
+#inputs are data frame vectors, actual v predicted
+#output is percent accuracy for predictions
+AccCalc=function(actuals,predictions){
+  acc=cbind(actuals,predictions)
+  acc=transform(acc,actual=as.character(acc[,1]))
+  acc=transform(acc,predicted=as.character(acc[,2]))
+  acc=transform(acc,matching=(acc$actual!=acc$predicted))
+  AccCalc=1-sum(acc$matching)/length(acc$matching)
+}
+```
+Use model I to predict on test data, calculate Accuracy, Confusion
+```{r,cache=FALSE,eval=FALSE}
+
+#Test random forest model against test data
+#using pre-processed predictors (trainPC pre-process model-->testPC)
+predrf=as.data.frame(predict(modrf,testPC))
+#set up accuracy measure on test set
+
+testAccrf=AccCalc(testPC$`testing1$classe`,predrf)
+testAccrf
+
+#confusion matrix function
+confusion=function(a,b){
+  tbl=table(a,b)
+  mis=1-sum(diag(tbl))/sum(tbl)
+  list(table=tbl,misclass.prob=mis)
+}
+
+cmrf=confusion(as.factor(predrf$`predict(modrf, testPC)`),as.factor(testPC$`testing1$classe`))
+cmrf
+```
+Calculate Model II GBM
+```{r,cache=FALSE, eval=FALSE}
+
+
+#model is gbm classification model
+
+require(gbm)
+model = gbm(`training1$classe`~., data=trainPC, n.trees=500,
+             interaction.depth=2,distribution="multinomial")
+predictiontrain = predict.gbm(model, trainPC, type="response", n.trees=500)
+prediction = predict.gbm(model, testPC, type="response", n.trees=500)
+
+
+
+#convert probabilities in prediction to values from 1 to 5 (A to B)
+#function converts integers to alpha
+train.pred = apply(predictiontrain, 1, which.max)
+train.pred=as.data.frame(train.pred)
+p.pred = apply(prediction, 1, which.max)
+p.pred=as.data.frame(p.pred)
+
+alphavalue=function(prediction){
+  alphavalue=transform(prediction,letter=ifelse(prediction==1,"A",
+                                                ifelse(prediction==2,"B",
+                                                       ifelse(prediction==3,"C",
+                                                              ifelse(prediction==4,"D",
+                                                                                      "E")))))
+}
+
+predtrain=alphavalue(train.pred)
+predtrain=as.data.frame(predtrain)
+predgbm=alphavalue(p.pred)
+predgbm=as.data.frame(predgbm)
+
+compvalid=cbind(testPC$`testing1$classe`,predgbm)
+compvalid=transform(compvalid,actual=compvalid[,1])
+compvalid=transform(compvalid,actual=as.character(actual))
+compvalid=transform(compvalid,predicted=as.character(compvalid[,2]))
+compvalid=transform(compvalid,matching=(compvalid$actual!=compvalid$predicted))
+testAcc2=1-sum(compvalid$matching)/length(compvalid$matching)
+trainAccgbm=AccCalc(trainPC$`training1$classe`,as.data.frame(predtrain$train.pred.1))
+
+cmtrain=confusion(as.factor(predtrain$train.pred.1),as.factor(trainPC$`training1$classe`))
+testAccgbm=AccCalc(testPC$`testing1$classe`,as.data.frame(predgbm$p.pred.1))
+
+cmtable=confusion(as.factor(predgbm$p.pred.1),as.factor(testPC$`testing1$classe`))
+```
+
+Metrics for Model II
+
+```{r,cache=FALSE,eval=FALSE}
+trainAccgbm
+cmtrain
+
+```
+
+```{r,cache=FALSE,eval=FALSE}
+testAccgbm
+cmtable
+
+```
+Selected Model - test against validation data
+```{r,cache=FALSE, eval=FALSE}
+predrfval=as.data.frame(predict(modrf,validPC))
+validAccrf=AccCalc(validPC$`valid1$classe`,predrfval)
+validAccrf
+cmrfvalid=confusion(as.factor(predrfval$`predict(modrf, validPC)`),as.factor(validPC$`valid1$classe`))
+cmrfvalid
+```
+Predictions for 20 test subjects
+```{r,cache=FALSE, eval=FALSE}
+predquiz=as.data.frame(predict(modrf,quizPC))
+predquiz
+```
